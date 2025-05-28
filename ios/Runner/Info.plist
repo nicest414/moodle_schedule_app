@@ -42,8 +42,26 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
+	
+	<!-- WebView用のネットワーク権限設定 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
+	
+	<!-- 通知権限の説明 -->
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
+	
+	<!-- カメラ・写真ライブラリへのアクセス（将来的に必要） -->
+	<key>NSCameraUsageDescription</key>
+	<string>課題の写真を撮影するためにカメラを使用します</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>課題に画像を添付するためにフォトライブラリにアクセスします</string>
 </dict>
 </plist>
