@@ -1,5 +1,7 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'storage_provider.dart'; // ストレージ機能をインポート
+import '../utils/logger.dart'; // ロガーをインポート
 
 /// 課題データのモデルクラス
 /// Moodleから取得した課題情報と、アプリ内での完了状態を管理
@@ -93,24 +95,54 @@ class Assignment {
 
 /// 課題リストを管理するNotifier
 /// 課題の追加、削除、完了状態の変更などを行う
-class AssignmentsNotifier extends StateNotifier<List<Assignment>> {
-  AssignmentsNotifier() : super([]);
+/// ローカルストレージによる永続化機能も提供
+class AssignmentsNotifier extends StateNotifier<List<Assignment>> with LoggerMixin {
+  AssignmentsNotifier() : super([]) {
+    // 初期化時にローカルデータを復元
+    _loadFromStorage();
+  }
+  /// ローカルストレージから課題データを復元するメソッド
+  /// アプリ起動時に自動実行される
+  Future<void> _loadFromStorage() async {
+    try {
+      final savedAssignments = await StorageService.loadAssignments();
+      if (savedAssignments.isNotEmpty) {
+        state = savedAssignments;
+        logData('ローカルストレージから${savedAssignments.length}件の課題を復元');
+      }
+    } catch (e) {
+      logError('ローカルデータ復元エラー', error: e);
+    }
+  }
+  /// データをローカルストレージに保存するメソッド
+  /// 課題データの変更後に自動実行される
+  Future<void> _saveToStorage() async {
+    try {
+      await StorageService.saveAssignments(state);
+    } catch (e) {
+      logError('ローカルデータ保存エラー', error: e);
+    }
+  }
 
   /// 課題リストをセットするメソッド
-  /// Moodleから取得したデータを設定
+  /// Moodleから取得したデータを設定し、ローカルストレージに保存
   void setAssignments(List<dynamic> assignmentData) {
     state = assignmentData
         .map((data) => Assignment.fromMap(Map<String, dynamic>.from(data)))
         .toList();
+    // データ更新後に自動保存
+    _saveToStorage();
   }
 
   /// 課題を追加するメソッド
+  /// 新規課題を追加してローカルストレージに保存
   void addAssignment(Assignment assignment) {
     state = [...state, assignment];
+    _saveToStorage();
   }
 
   /// 課題の完了状態を切り替えるメソッド
-  /// 課題IDを指定して完了/未完了を変更
+  /// 課題IDを指定して完了/未完了を変更し、ローカルストレージに保存
   void toggleAssignmentCompletion(String assignmentId) {
     state = state.map((assignment) {
       if (assignment.id == assignmentId) {
@@ -121,9 +153,11 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> {
       }
       return assignment;
     }).toList();
+    _saveToStorage();
   }
 
   /// 課題の優先度を変更するメソッド
+  /// 優先度変更後にローカルストレージに保存
   void updateAssignmentPriority(String assignmentId, int priority) {
     state = state.map((assignment) {
       if (assignment.id == assignmentId) {
@@ -131,16 +165,46 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> {
       }
       return assignment;
     }).toList();
+    _saveToStorage();
   }
 
   /// 完了した課題を削除するメソッド
+  /// 削除後にローカルストレージを更新
   void removeCompletedAssignments() {
     state = state.where((assignment) => !assignment.isCompleted).toList();
+    _saveToStorage();
   }
 
   /// 課題をクリアするメソッド
+  /// 全課題削除後にローカルストレージもクリア
   void clearAssignments() {
     state = [];
+    _saveToStorage();
+  }
+
+  /// 手動でローカルストレージからデータを復元するメソッド
+  /// 設定画面などから呼び出し可能
+  Future<void> refreshFromStorage() async {
+    await _loadFromStorage();
+  }
+
+  /// ローカルストレージのデータサイズを取得するメソッド
+  /// 設定画面でのストレージ使用量表示用
+  Future<Map<String, int>> getStorageSize() async {
+    return await StorageService.getDataSize();
+  }
+
+  /// すべてのローカルデータを削除するメソッド
+  /// 設定画面のリセット機能で使用
+  Future<bool> clearAllStorageData() async {
+    state = [];
+    return await StorageService.clearAllData();
+  }
+
+  /// 最終更新時刻を取得するメソッド
+  /// データの新しさ確認用
+  Future<DateTime?> getLastUpdateTime() async {
+    return await StorageService.getLastUpdateTime();
   }
 
   /// 課題をソートするメソッド
@@ -148,14 +212,13 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> {
   void sortAssignments(AssignmentSortType sortType) {
     final sortedList = List<Assignment>.from(state);
     
-    switch (sortType) {      case AssignmentSortType.dueDate:
-        sortedList.sort((a, b) {
+    switch (sortType) {      case AssignmentSortType.dueDate:        sortedList.sort((a, b) {
           try {
             final dateA = _parseDateTime(a.startTime);
             final dateB = _parseDateTime(b.startTime);
             return dateA.compareTo(dateB);
           } catch (e) {
-            print('❌ ソート中の日付パースエラー: $e');
+            logError('ソート中の日付パースエラー', error: e);
             return 0;
           }
         });
@@ -188,26 +251,24 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> {
         'yyyy/M/d H:mm',             // 月、日、時刻が1桁: 2025/6/3 4:00
         'yyyy-MM-dd HH:mm:ss',       // ISO形式（バックアップ）
         'yyyy-MM-dd HH:mm',          // ISO形式（秒なし）
-      ];
-        // 各フォーマットを順番に試す
+      ];        // 各フォーマットを順番に試す
       for (String format in dateFormats) {
         try {
           final parsed = DateFormat(format).parse(dateTimeString);
-          print('✅ 日付パース成功: "$dateTimeString" → $parsed (フォーマット: $format)');
+          logDebug('日付パース成功: "$dateTimeString" → $parsed (フォーマット: $format)');
           return parsed;
         } catch (e) {
           // このフォーマットで失敗したら次を試す
-          print('❌ フォーマット "$format" で失敗: $e');
           continue;
         }
       }
       
       // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      print('⚠️ 日付パース失敗: $dateTimeString');
+      logWarning('日付パース失敗: $dateTimeString');
       return DateTime.now();
       
     } catch (e) {
-      print('❌ 日付パース例外: $e - 入力: $dateTimeString');
+      logError('日付パース例外 - 入力: $dateTimeString', error: e);
       return DateTime.now();
     }
   }

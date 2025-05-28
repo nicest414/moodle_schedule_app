@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../providers/assignments_provider.dart';
+import '../utils/logger.dart';
 
 /// カレンダー表示画面
 /// 課題を日付ごとに可視化して、締切日の管理を簡単にする
@@ -13,7 +14,7 @@ class CalendarScreen extends ConsumerStatefulWidget {
   ConsumerState<CalendarScreen> createState() => _CalendarScreenState();
 }
 
-class _CalendarScreenState extends ConsumerState<CalendarScreen> {
+class _CalendarScreenState extends ConsumerState<CalendarScreen> with LoggerMixin {
   // カレンダーで選択された日付を管理
   DateTime selectedDay = DateTime.now();
   DateTime focusedDay = DateTime.now();
@@ -147,11 +148,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         if (!grouped.containsKey(dateKey)) {
           grouped[dateKey] = [];
         }
-        
-        // 課題をその日付のリストに追加
+          // 課題をその日付のリストに追加
         grouped[dateKey]!.add(assignment);
       } catch (e) {
-        print('日付解析エラー: $e');
+        logError('日付解析エラー: $e');
         // エラーの場合は今日の日付に追加
         final todayKey = _getDateKey(DateTime.now());
         if (!grouped.containsKey(todayKey)) {
@@ -197,9 +197,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           continue;
         }
       }
-      
-      // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      print('⚠️ CalendarScreen日付パース失敗: $dateTimeString');
+          // すべて失敗した場合はエラーログを出力して現在時刻を返す
+      logWarning('CalendarScreen日付パース失敗: $dateTimeString');
       return DateTime.now();
     } catch (e) {
       // パースに失敗した場合は現在時刻を返す

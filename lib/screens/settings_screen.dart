@@ -153,6 +153,64 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
+          
+          const SizedBox(height: 16),
+          
+          // ローカルストレージ管理セクション
+          _buildSectionHeader('💾 ローカルストレージ'),
+          Card(
+            child: Column(
+              children: [
+                FutureBuilder<Map<String, int>>(
+                  future: ref.read(assignmentsProvider.notifier).getStorageSize(),
+                  builder: (context, snapshot) {
+                    final size = snapshot.data;
+                    return ListTile(
+                      leading: const Icon(Icons.storage, color: Colors.purple),
+                      title: const Text('ストレージ使用量'),
+                      subtitle: Text(size != null 
+                          ? '課題データ: ${(size['assignments']! / 1024).toStringAsFixed(1)}KB\n'
+                            '設定データ: ${(size['settings']! / 1024).toStringAsFixed(1)}KB'
+                          : '計算中...'),
+                      trailing: const Icon(Icons.info_outline),
+                    );
+                  },
+                ),
+                FutureBuilder<DateTime?>(
+                  future: ref.read(assignmentsProvider.notifier).getLastUpdateTime(),
+                  builder: (context, snapshot) {
+                    final lastUpdate = snapshot.data;
+                    return ListTile(
+                      leading: const Icon(Icons.update, color: Colors.blue),
+                      title: const Text('最終更新'),
+                      subtitle: Text(lastUpdate != null 
+                          ? '${lastUpdate.year}/${lastUpdate.month}/${lastUpdate.day} '
+                            '${lastUpdate.hour}:${lastUpdate.minute.toString().padLeft(2, '0')}'
+                          : '更新データなし'),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.backup, color: Colors.green),
+                  title: const Text('データをバックアップから復元'),
+                  subtitle: const Text('ローカルストレージからデータを再読み込み'),
+                  onTap: () => _restoreFromStorage(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restore, color: Colors.orange),
+                  title: const Text('設定をリセット'),
+                  subtitle: const Text('すべての設定をデフォルトに戻す'),
+                  onTap: () => _resetSettingsDialog(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: const Text('ローカルデータを完全削除'),
+                  subtitle: const Text('課題・設定データをすべて削除'),
+                  onTap: () => _clearStorageDialog(context, ref),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -380,6 +438,88 @@ class SettingsScreen extends ConsumerWidget {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+  /// ローカルストレージからデータを復元
+  void _restoreFromStorage(BuildContext context, WidgetRef ref) async {
+    try {
+      // 課題データと設定を復元
+      await ref.read(assignmentsProvider.notifier).refreshFromStorage();
+      await ref.read(settingsProvider.notifier).refreshSettings();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('データを復元しました ✅'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('復元に失敗しました: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// 設定リセット確認ダイアログを表示
+  void _resetSettingsDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('設定をリセット'),
+        content: const Text('すべての設定をデフォルトに戻しますか？\nこの操作は取り消せません。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(            onPressed: () {
+              ref.read(settingsProvider.notifier).resetToDefaults();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('設定をリセットしました 🔄'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('リセット'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// ストレージデータ削除確認ダイアログを表示
+  void _clearStorageDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('⚠️ データ削除'),
+        content: const Text('ローカルストレージの課題・設定データをすべて削除しますか？\nこの操作は取り消せません。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(            onPressed: () {
+              ref.read(assignmentsProvider.notifier).clearAllStorageData();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('ローカルデータを削除しました 🗑️'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('削除'),
           ),
         ],
       ),

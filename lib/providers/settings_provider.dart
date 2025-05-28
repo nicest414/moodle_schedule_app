@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'assignments_provider.dart';
+import 'storage_provider.dart'; // ストレージ機能をインポート
+import '../utils/logger.dart'; // ロガーをインポート
 
 /// アプリの設定データを管理するクラス
 /// ユーザーの好みや通知設定などを保存
@@ -60,8 +62,12 @@ class AppSettings {
 
 /// 設定を管理するNotifier
 /// ユーザーの設定変更を処理し、状態を更新
-class SettingsNotifier extends StateNotifier<AppSettings> {
-  SettingsNotifier() : super(const AppSettings());
+/// ローカルストレージによる永続化機能も提供
+class SettingsNotifier extends StateNotifier<AppSettings> with LoggerMixin {
+  SettingsNotifier() : super(const AppSettings()) {
+    // 初期化時にローカル設定を復元
+    _loadSettings();
+  }
 
   /// 通知の有効/無効を切り替え
   void toggleNotifications(bool enabled) {
@@ -92,20 +98,41 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(showCompletedTasks: show);
     _saveSettings();
   }
-
-  /// 設定をローカルストレージに保存
-  /// TODO: shared_preferencesを使用して実際に保存する
-  void _saveSettings() {
-    // 現在はメモリ上での管理のみ
-    // 後でshared_preferencesを使って永続化する
-    print('設定を保存: ${state.toMap()}');
+  /// 設定をローカルストレージに保存するメソッド
+  /// 設定変更後に自動実行される
+  Future<void> _saveSettings() async {
+    try {
+      await StorageService.saveUserSettings(state.toMap());
+      logSuccess('設定保存完了: ${state.toMap()}');
+    } catch (e) {
+      logError('設定保存エラー', error: e);
+    }
+  }
+  /// 設定をローカルストレージから読み込むメソッド
+  /// アプリ起動時に自動実行される
+  Future<void> _loadSettings() async {
+    try {
+      final settingsMap = await StorageService.loadUserSettings();
+      final loadedSettings = AppSettings.fromMap(settingsMap);
+      state = loadedSettings;
+      logSuccess('設定復元完了');
+    } catch (e) {
+      logError('設定復元エラー - デフォルト設定を使用', error: e);
+      state = const AppSettings();
+    }
   }
 
-  /// 設定をローカルストレージから読み込み
-  /// TODO: shared_preferencesから読み込む
-  void loadSettings() {
-    // 現在はデフォルト設定を使用
-    // 後で実際の保存データから復元する
+  /// 手動で設定を復元するメソッド
+  /// 設定画面からの手動復元時に使用
+  Future<void> refreshSettings() async {
+    await _loadSettings();
+  }
+  /// すべての設定をリセットするメソッド
+  /// 設定画面のリセット機能で使用
+  Future<void> resetToDefaults() async {
+    state = const AppSettings();
+    await _saveSettings();
+    logInfo('設定をデフォルトにリセット');
   }
 }
 

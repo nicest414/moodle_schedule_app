@@ -4,6 +4,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../providers/auth_provider.dart';
 import 'main_navigation_screen.dart'; // メインナビゲーション画面
 import '../providers/assignments_provider.dart';
+import '../utils/logger.dart';
 
 // Moodleにログインするための画面
 // WebViewを使って学校のログインページを表示し、認証状態を管理
@@ -14,7 +15,7 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
   late InAppWebViewController webViewController;
   final String moodleLoginUrl = 'https://moodle.cis.fukuoka-u.ac.jp/login/index.php';
   
@@ -72,7 +73,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               return ServerTrustAuthResponse(action: ServerTrustAuthResponseAction.PROCEED);
             },            // HTTPエラーも処理
             onReceivedHttpError: (controller, request, errorResponse) {
-              print("HTTPエラー: ${errorResponse.statusCode} - ${errorResponse.reasonPhrase}");
+              logError("HTTPエラー: ${errorResponse.statusCode} - ${errorResponse.reasonPhrase}");
               // null安全なステータスコードチェック
               final statusCode = errorResponse.statusCode;
               if (statusCode != null && statusCode >= 500) {
@@ -82,10 +83,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   isLoading = false;
                 });
               }
-            },
-            // エラーページが表示されたときのハンドリング
+            },            // エラーページが表示されたときのハンドリング
             onReceivedError: (controller, request, error) {
-              print("WebViewエラー: ${error.description}");
+              logError("WebViewエラー: ${error.description}");
               setState(() {
                 hasError = true;
                 errorMessage = error.description;
@@ -114,7 +114,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('ログイン成功！課題データを取得中... 🎉'),
+                        content: Text('ログイン成功！課題データを取得中... '),
                         backgroundColor: Colors.green,
                         duration: Duration(seconds: 2),
                       ),
@@ -163,9 +163,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         }
                       });
                     }
-                  }
+                  }                  
                 } catch (e) {
-                  print('❌ ログイン後処理エラー: $e');
+                  logError('ログイン後処理エラー: $e');
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -233,7 +233,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         handlerName: 'assignmentDataHandler',
         callback: (args) {
           if (args.isNotEmpty) {
-            print('課題データ受信: ${args[0]}');
+            logInfo('課題データ受信: ${args[0]}');
             
             // 課題データをプロバイダに保存したり、別画面に渡したり
             // ここで取得データの処理を行う
@@ -382,8 +382,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         // メイン処理を実行（少し待ってから）
         console.log('🚀 課題データ取得を開始...');
         setTimeout(fetchAssignmentData, 1000); // 1秒待ってから実行
-      ''');} catch (e) {
-      print('❌ JavaScript実行エラー: $e');
+      ''');    } catch (e) {
+      logError('JavaScript実行エラー: $e');
       // エラーハンドリング - JavaScript実行に失敗した場合
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -405,10 +405,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // 戻り値: なし（プロバイダーの状態を更新）
   void _processAssignmentData(dynamic data) {
     if (!mounted) return; // ウィジェットが破棄されている場合は処理しない
-    
-    if (data is Map && data.containsKey('error')) {
+      if (data is Map && data.containsKey('error')) {
       // エラーハンドリング - MoodleのAPIエラーや通信エラーを表示
-      print('❌ エラー発生: ${data['error']}');
+      logError('エラー発生: ${data['error']}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('データ取得エラー: ${data['error']} 😫'),
@@ -423,10 +422,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       return;
     }
-    
-    if (data is Map && data.containsKey('events') && data['events'] is List) {
+      if (data is Map && data.containsKey('events') && data['events'] is List) {
       final events = data['events'] as List;
-      print('✅ 取得した課題数: ${events.length}');
+      logSuccess('取得した課題数: ${events.length}');
       
       // データの形式を確認してからプロバイダーに保存
       try {
@@ -475,30 +473,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
-        );
-          // デバッグ出力（最初の3件のみ）
+        );          // デバッグ出力（最初の3件のみ）
         final displayCount = events.length > 3 ? 3 : events.length;
-        print('🔍 === 課題データ詳細デバッグ ===');
+        logDebug('=== 課題データ詳細デバッグ ===');
         for (var i = 0; i < displayCount; i++) {
-          print('📚 課題${i + 1}: ${events[i]['name']}');
-          print('  ⏰ 日時（生データ）: "${events[i]['startTime']}" (長さ: ${events[i]['startTime'].toString().length})');
-          print('  📖 コース: ${events[i]['course']}');
-          print('  🔑 ID: ${events[i]['id']}');
+          logDebug('課題${i + 1}: ${events[i]['name']}');
+          logDebug('  ⏰ 日時（生データ）: "${events[i]['startTime']}" (長さ: ${events[i]['startTime'].toString().length})');
+          logDebug('  📖 コース: ${events[i]['course']}');
+          logDebug('  🔑 ID: ${events[i]['id']}');
           
           // 日付文字列の詳細分析
           final dateStr = events[i]['startTime'].toString();
-          print('  📅 日付文字列分析:');
-          print('    - 文字列: "$dateStr"');
-          print('    - 文字数: ${dateStr.length}');
-          print('    - 含まれる文字: ${dateStr.split('').join(', ')}');
+          logDebug('  📅 日付文字列分析:');
+          logDebug('    - 文字列: "$dateStr"');
+          logDebug('    - 文字数: ${dateStr.length}');
+          logDebug('    - 含まれる文字: ${dateStr.split('').join(', ')}');
         }
         if (events.length > 3) {
-          print('... 他${events.length - 3}件');
+          logDebug('... 他${events.length - 3}件');
         }
-        print('🔍 === デバッグ終了 ===');
-        
+        logDebug('=== デバッグ終了 ===');        
       } catch (e) {
-        print('❌ データ変換エラー: $e');
+        logError('データ変換エラー: $e');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('データの変換に失敗: $e 😱'),
@@ -511,9 +507,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
         );
-      }
-    } else {
-      print('⚠️ 予期しないデータ形式: $data');
+      }    } else {
+      logWarning('予期しないデータ形式: $data');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('課題データの形式が正しくありません 🤔'),

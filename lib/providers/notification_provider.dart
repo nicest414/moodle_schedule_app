@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'assignments_provider.dart';
 import 'settings_provider.dart';
+import '../utils/logger.dart'; // ロガーをインポート
 
 /// 通知サービスを管理するクラス
 /// 課題の締切通知を処理
@@ -39,10 +40,9 @@ class NotificationService {
 
     _initialized = true;
   }
-
   /// 通知がタップされた時の処理
   static void _onNotificationTapped(NotificationResponse response) {
-    print('通知がタップされました: ${response.payload}');
+    AppLogger.ui('通知がタップされました: ${response.payload}', tag: 'Notification');
     // TODO: 特定の課題詳細画面に遷移する処理を実装
   }
 
@@ -92,11 +92,9 @@ class NotificationService {
         '${assignment.name}\n締切: ${DateFormat('M月d日 HH:mm').format(deadline)}',
         notificationDetails,
         payload: assignment.id, // 課題IDをペイロードとして設定
-      );
-
-      print('通知をスケジュール: ${assignment.name} at $notificationTime');
+      );      AppLogger.notification('通知をスケジュール: ${assignment.name} at $notificationTime');
     } catch (e) {
-      print('通知スケジュールエラー: $e');
+      AppLogger.error('通知スケジュールエラー', tag: 'Notification', error: e);
     }
   }
 
@@ -136,9 +134,8 @@ class NotificationService {
           continue;
         }
       }
-      
-      // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      print('⚠️ NotificationProvider日付パース失敗: $dateTimeString');
+        // すべて失敗した場合はエラーログを出力して現在時刻を返す
+      AppLogger.warning('NotificationProvider日付パース失敗: $dateTimeString', tag: 'Notification');
       return DateTime.now();
     } catch (e) {
       return DateTime.now();

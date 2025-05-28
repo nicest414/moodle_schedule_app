@@ -4,10 +4,11 @@ import '../providers/assignments_provider.dart';
 import '../providers/settings_provider.dart';
 import 'package:intl/intl.dart'; // 日付フォーマット用
 import 'package:url_launcher/url_launcher.dart'; // URL起動用
+import '../utils/logger.dart';
 
 // 課題一覧を表示する画面
 // Moodleから取得した課題データをリストで表示
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerWidget with LoggerMixin {
   const HomeScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -214,13 +215,12 @@ class HomeScreen extends ConsumerWidget {
           // このフォーマットで失敗したら次を試す
           continue;
         }
-      }
-      
+      }      
       // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      print('⚠️ HomeScreen日付パース失敗: $dateTimeString');
+      AppLogger.warning('HomeScreen日付パース失敗: $dateTimeString');
       return DateTime.now();
     } catch (e) {
-      print('日付パースエラー: $e');
+      AppLogger.error('日付パースエラー: $e');
       return DateTime.now(); // エラー時は現在時刻を返す
     }
   }
