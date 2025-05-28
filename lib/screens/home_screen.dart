@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../providers/assignments_provider.dart';
+import '../providers/settings_provider.dart';
 import 'package:intl/intl.dart'; // 日付フォーマット用
 import 'package:url_launcher/url_launcher.dart'; // URL起動用
 
@@ -8,11 +9,16 @@ import 'package:url_launcher/url_launcher.dart'; // URL起動用
 // Moodleから取得した課題データをリストで表示
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // プロバイダーから課題データを取得
-    final assignments = ref.watch(assignmentsProvider);
+    // プロバイダーから課題データと設定を取得
+    final allAssignments = ref.watch(assignmentsProvider);
+    final settings = ref.watch(settingsProvider);
+    
+    // 設定に基づいて課題をフィルタリング
+    final assignments = settings.showCompletedTasks 
+        ? allAssignments 
+        : allAssignments.where((assignment) => !assignment.isCompleted).toList();
     
     // データが空の場合
     if (assignments.isEmpty) {
@@ -31,15 +37,62 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
+    return Scaffold(      appBar: AppBar(
         title: const Text('課題一覧'),
         actions: [
-          // 更新ボタン（後で実装）
+          // ソートボタン
+          PopupMenuButton<AssignmentSortType>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'ソート',
+            onSelected: (sortType) {
+              ref.read(assignmentsProvider.notifier).sortAssignments(sortType);
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: AssignmentSortType.dueDate,
+                child: ListTile(
+                  leading: Icon(Icons.schedule),
+                  title: Text('締切日順'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: AssignmentSortType.priority,
+                child: ListTile(
+                  leading: Icon(Icons.priority_high),
+                  title: Text('優先度順'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: AssignmentSortType.course,
+                child: ListTile(
+                  leading: Icon(Icons.school),
+                  title: Text('コース順'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: AssignmentSortType.completion,
+                child: ListTile(
+                  leading: Icon(Icons.check_circle),
+                  title: Text('完了状態順'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+          // 更新ボタン
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
               // 課題データの再取得処理（後で実装）
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('課題データの更新機能は開発中です 🚧'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
             },
           ),
         ],
@@ -66,12 +119,44 @@ class HomeScreen extends ConsumerWidget {
                 ? Colors.red.shade50
                 : isUrgent 
                     ? Colors.orange.shade50
-                    : Colors.white,
-            child: ListTile(
-              leading: Icon(taskIcon, color: _getColorForModule(assignment.moduleName), size: 32),
-              title: Text(
+                    : Colors.white,            child: ListTile(
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 完了チェックボックス
+                  Checkbox(
+                    value: assignment.isCompleted,
+                    onChanged: (value) {
+                      ref.read(assignmentsProvider.notifier).toggleAssignmentCompletion(assignment.id);
+                      
+                      // 完了時のフィードバック
+                      if (value == true) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('「${assignment.name}」を完了しました ✅'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  // 課題アイコン
+                  Icon(
+                    taskIcon,
+                    color: assignment.isCompleted 
+                        ? Colors.grey 
+                        : _getColorForModule(assignment.moduleName),
+                    size: 32,
+                  ),
+                ],
+              ),              title: Text(
                 assignment.name,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  decoration: assignment.isCompleted ? TextDecoration.lineThrough : null,
+                  color: assignment.isCompleted ? Colors.grey : null,
+                ),
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,8 +170,17 @@ class HomeScreen extends ConsumerWidget {
                 ],
               ),
               isThreeLine: true,
-              trailing: _buildRemainingDaysWidget(daysRemaining),
-              onTap: () => _showAssignmentDetails(context, assignment),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 優先度インジケーター
+                  _buildPriorityIndicator(assignment.priority),
+                  const SizedBox(width: 8),
+                  // 残り日数表示
+                  _buildRemainingDaysWidget(daysRemaining),
+                ],
+              ),
+              onTap: () => _showAssignmentDetails(context, assignment, ref),
             ),
           );
         },
@@ -97,8 +191,34 @@ class HomeScreen extends ConsumerWidget {
   // 文字列の日付をDateTimeに変換
   DateTime _parseDateTime(String dateTimeString) {
     try {
-      // "M/d/yyyy, h:mm:ss a" 形式の文字列をパース
-      return DateFormat('M/d/yyyy, h:mm:ss a').parse(dateTimeString);
+      // 実際に来るデータの形式に合わせたフォーマットリスト
+      final List<String> dateFormats = [
+        'yyyy/MM/dd HH:mm',          // メイン形式: 2025/06/03 15:00
+        'yyyy/MM/dd H:mm',           // 時刻が1桁の場合: 2025/06/03 4:00
+        'yyyy/M/dd HH:mm',           // 月が1桁の場合: 2025/6/03 15:00
+        'yyyy/M/dd H:mm',            // 月と時刻が1桁: 2025/6/03 4:00
+        'yyyy/MM/d HH:mm',           // 日が1桁の場合: 2025/06/3 15:00
+        'yyyy/MM/d H:mm',            // 日と時刻が1桁: 2025/06/3 4:00
+        'yyyy/M/d HH:mm',            // 月と日が1桁: 2025/6/3 15:00
+        'yyyy/M/d H:mm',             // 月、日、時刻が1桁: 2025/6/3 4:00
+        'M/d/yyyy, h:mm:ss a',       // 旧形式（互換性のため）
+        'yyyy-MM-dd HH:mm:ss',       // ISO形式（バックアップ）
+        'yyyy-MM-dd HH:mm',          // ISO形式（秒なし）
+      ];
+      
+      // 各フォーマットを順番に試す
+      for (String format in dateFormats) {
+        try {
+          return DateFormat(format).parse(dateTimeString);
+        } catch (e) {
+          // このフォーマットで失敗したら次を試す
+          continue;
+        }
+      }
+      
+      // すべて失敗した場合はエラーログを出力して現在時刻を返す
+      print('⚠️ HomeScreen日付パース失敗: $dateTimeString');
+      return DateTime.now();
     } catch (e) {
       print('日付パースエラー: $e');
       return DateTime.now(); // エラー時は現在時刻を返す
@@ -147,6 +267,71 @@ class HomeScreen extends ConsumerWidget {
         return Colors.amber;
       default:
         return Colors.grey;
+    }
+  }
+
+  // 優先度インジケーターを構築するメソッド
+  Widget _buildPriorityIndicator(int priority) {
+    Color color;
+    IconData icon;
+    
+    switch (priority) {
+      case 3: // 高優先度
+        color = Colors.red;
+        icon = Icons.priority_high;
+        break;
+      case 2: // 中優先度
+        color = Colors.orange;
+        icon = Icons.remove;
+        break;
+      case 1: // 低優先度
+        color = Colors.green;
+        icon = Icons.keyboard_arrow_down;
+        break;
+      default:
+        color = Colors.grey;
+        icon = Icons.remove;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Icon(
+        icon,
+        size: 16,
+        color: color,
+      ),
+    );  }
+
+  // 優先度に応じた色を返すメソッド
+  Color _getPriorityColor(int priority) {
+    switch (priority) {
+      case 3:
+        return Colors.red;
+      case 2:
+        return Colors.orange;
+      case 1:
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  // 優先度のラベルを返すメソッド
+  String _getPriorityLabel(int priority) {
+    switch (priority) {
+      case 3:
+        return '高';
+      case 2:
+        return '中';
+      case 1:
+        return '低';
+      default:
+        return '中';
     }
   }
 
@@ -206,9 +391,8 @@ class HomeScreen extends ConsumerWidget {
       );
     }
   }
-
   // 課題詳細を表示
-  void _showAssignmentDetails(BuildContext context, Assignment assignment) {
+  void _showAssignmentDetails(BuildContext context, Assignment assignment, WidgetRef ref) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -258,10 +442,61 @@ class HomeScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const Divider(height: 32),
-                  _infoTile('コース', assignment.course),
+                  const Divider(height: 32),                  _infoTile('コース', assignment.course),
                   _infoTile('締切日時', _formatDateTime(assignment.startTime)),
                   _infoTile('課題の種類', assignment.moduleName),
+                  // 優先度設定
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            '優先度',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Row(
+                            children: [1, 2, 3].map((priority) {
+                              final isSelected = assignment.priority == priority;
+                              return GestureDetector(
+                                onTap: () {
+                                  ref.read(assignmentsProvider.notifier).updateAssignmentPriority(assignment.id, priority);
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(right: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? _getPriorityColor(priority) : Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: _getPriorityColor(priority),
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _getPriorityLabel(priority),
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.white : _getPriorityColor(priority),
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   if (assignment.description.isNotEmpty)
                     _infoTile('説明', assignment.description, isHtml: true),
                   const SizedBox(height: 20),

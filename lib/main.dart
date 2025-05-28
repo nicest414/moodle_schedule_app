@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'screens/login_screen.dart';  // ログイン画面を表示
+import 'providers/settings_provider.dart';
 
 
 void main() {
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -12,11 +13,34 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ProviderScope(
-      child: MaterialApp(
-        title: 'Moodle Schedule App',
-        home: LoginScreen(),
-      ),
+    return Consumer(
+      builder: (context, ref, child) {
+        // ダークモード設定を監視
+        final isDarkMode = ref.watch(themeProvider);
+        
+        return MaterialApp(
+          title: 'Moodle Schedule App',
+          // テーマ設定（ライト・ダーク対応）
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          home: const LoginScreen(),
+          // デバッグバナーを非表示
+          debugShowCheckedModeBanner: false,
+        );
+      },
     );
   }
 }

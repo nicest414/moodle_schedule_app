@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../providers/auth_provider.dart';
-import 'home_screen.dart'; // 課題一覧画面
+import 'main_navigation_screen.dart'; // メインナビゲーション画面
 import '../providers/assignments_provider.dart';
 
 // Moodleにログインするための画面
@@ -45,15 +45,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ],
       ),
       body: Stack(
-        children: [
-          InAppWebView(
+        children: [          InAppWebView(
             initialUrlRequest: URLRequest(url: WebUri.uri(Uri.parse(moodleLoginUrl))),
+            // WebView設定を強化
+            initialSettings: InAppWebViewSettings(
+              javaScriptEnabled: true,
+              domStorageEnabled: true,
+              databaseEnabled: true,
+              clearCache: false, // キャッシュを保持してパフォーマンス向上
+              cacheEnabled: true,
+              // レンダリング設定
+              useWideViewPort: true,
+              loadWithOverviewMode: true,
+              // セキュリティ設定
+              allowsInlineMediaPlayback: true,
+              allowsAirPlayForMediaPlayback: false,
+              // クラッシュ防止設定
+              disableDefaultErrorPage: true,
+              supportMultipleWindows: false,
+            ),
             onWebViewCreated: (controller) {
               webViewController = controller;
             },
             // SSL証明書エラーを無視する設定
             onReceivedServerTrustAuthRequest: (controller, challenge) async {
               return ServerTrustAuthResponse(action: ServerTrustAuthResponseAction.PROCEED);
+            },            // HTTPエラーも処理
+            onReceivedHttpError: (controller, request, errorResponse) {
+              print("HTTPエラー: ${errorResponse.statusCode} - ${errorResponse.reasonPhrase}");
+              // null安全なステータスコードチェック
+              final statusCode = errorResponse.statusCode;
+              if (statusCode != null && statusCode >= 500) {
+                setState(() {
+                  hasError = true;
+                  errorMessage = "サーバーエラーが発生しました ($statusCode)";
+                  isLoading = false;
+                });
+              }
             },
             // エラーページが表示されたときのハンドリング
             onReceivedError: (controller, request, error) {
@@ -68,9 +96,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             onLoadStart: (controller, url) {
               setState(() {
                 isLoading = true;
+                hasError = false; // エラー状態をリセット
               });
-            },
-            // ページ読み込み完了時のハンドリング
+            },            // ページ読み込み完了時のハンドリング
             onLoadStop: (controller, url) async {
               setState(() {
                 isLoading = false;
@@ -78,26 +106,76 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               
               // ログイン成功後のリダイレクトURLを確認
               if (url.toString().contains('/my/')) {
-                // JavaScript を実行して課題データを取得
-                await _fetchAssignmentData(controller);
-                
-                // ログイン成功時のスナックバー表示
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('ログイン成功！🎉'),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-                
-                // ログイン成功とみなして状態を更新
-                ref.read(authProvider.notifier).state = true;
+                try {
+                  // ログイン成功とみなして状態を更新
+                  ref.read(authProvider.notifier).state = true;
 
-                // 課題一覧画面に遷移
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const HomeScreen()),
-                );
+                  // ログイン成功時のスナックバー表示
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('ログイン成功！課題データを取得中... 🎉'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                  
+                  // JavaScript を実行して課題データを取得
+                  await _fetchAssignmentData(controller);
+                  
+                  // データ取得の完了を待つ（タイムアウト付き）
+                  bool dataFetched = false;
+                  int attempts = 0;
+                  const maxAttempts = 10; // 最大10回チェック（5秒間）
+                  
+                  while (!dataFetched && attempts < maxAttempts && mounted) {
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    final assignments = ref.read(assignmentsProvider);
+                    
+                    if (assignments.isNotEmpty) {
+                      dataFetched = true;
+                      break;
+                    }
+                    attempts++;
+                  }
+                    // 画面遷移を実行
+                  if (mounted) {
+                    final assignments = ref.read(assignmentsProvider);
+                    
+                    // データがあるかどうかに関わらずメインナビゲーション画面に遷移
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+                    );
+                    
+                    // データが取得できなかった場合の追加メッセージ
+                    if (assignments.isEmpty && attempts >= maxAttempts) {
+                      Future.delayed(const Duration(milliseconds: 500), () {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('課題データの取得に時間がかかっています... 📝'),
+                              backgroundColor: Colors.orange,
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      });
+                    }
+                  }
+                } catch (e) {
+                  print('❌ ログイン後処理エラー: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('処理中にエラーが発生: $e 😞'),
+                        backgroundColor: Colors.red,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                }
               }
             },
           ),
@@ -163,81 +241,184 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           }
           return true;
         }
-      );
-
+      );      // 少し待ってからJavaScript実行（ページが完全に読み込まれるまで）
+      await Future.delayed(const Duration(milliseconds: 2000));
+      
       // JavaScript コードを注入して実行
       await controller.evaluateJavascript(source: '''
-        // 課題データを取得する関数
+        // 課題データを取得する非同期関数（エラーハンドリング強化版）
+        // MoodleのAPIを使って今後の課題イベントを安全に取得
         async function fetchAssignmentData() {
           try {
-            const sesskey = M.cfg.sesskey;
-            if (!sesskey) {
-              window.flutter_inappwebview.callHandler('assignmentDataHandler', { error: 'セッションキーが見つからない' });
+            console.log('🔍 Moodle環境チェック開始...');
+            
+            // Moodleオブジェクトの存在確認
+            if (typeof M === 'undefined' || !M.cfg) {
+              console.warn('⚠️ Moodleオブジェクトが見つからない');
+              window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+                error: 'Moodleが完全に読み込まれていません。少し待ってからリトライしてください。' 
+              });
               return;
             }
             
-            const response = await fetch("/lib/ajax/service.php?sesskey=" + sesskey + "&info=core_calendar_get_action_events_by_timesort", {
+            // セッションキーの確認
+            const sesskey = M.cfg.sesskey;
+            if (!sesskey) {
+              console.warn('⚠️ セッションキーが見つからない');
+              window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+                error: 'ログインセッションが無効です。再ログインしてください。' 
+              });
+              return;
+            }
+            
+            console.log('✅ セッションキー確認完了');
+            
+            // より安全なfetch呼び出し（タイムアウト付き）
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒タイムアウト
+            
+            const apiUrl = window.location.origin + "/lib/ajax/service.php?sesskey=" + sesskey + "&info=core_calendar_get_action_events_by_timesort";
+            console.log('🌐 API呼び出し先:', apiUrl);
+            
+            const response = await fetch(apiUrl, {
               method: "POST",
               headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest" // AJAX リクエストであることを明示
               },
               body: JSON.stringify([{
                 "index": 0,
                 "methodname": "core_calendar_get_action_events_by_timesort",
                 "args": {
-                  "limitnum": 20,
-                  "timesortfrom": Math.floor(Date.now() / 1000)
+                  "limitnum": 30, // 適度な数に調整
+                  "timesortfrom": Math.floor(Date.now() / 1000) // 現在時刻以降の課題のみ
                 }
-              }])
+              }]),
+              signal: controller.signal // タイムアウト制御
             });
             
+            clearTimeout(timeoutId); // タイムアウトをクリア
+            
+            console.log('📡 レスポンス受信:', response.status, response.statusText);
+            
+            if (!response.ok) {
+              throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            }
+            
+            // レスポンスをJSONに変換
             const data = await response.json();
-            if (data && data[0] && data[0].data && data[0].data.events) {
-              // 課題データをFormatして返す
+            console.log('📊 レスポンスデータ:', data);
+            
+            // データの構造を確認
+            if (data && Array.isArray(data) && data[0] && data[0].data && data[0].data.events) {
               const events = data[0].data.events;
-              const formattedEvents = events.map(ev => ({
-                name: ev.name,
-                startTime: new Date(ev.timesort * 1000).toLocaleString(),
-                course: ev.course?.fullname || '不明',
-                moduleName: ev.modulename || '',
+              console.log('📝 イベント数:', events.length);
+              
+              // 課題データをFlutter側で使いやすい形式にフォーマット
+              const formattedEvents = events.map((ev, index) => ({
+                id: (ev.id || ev.name?.replace(/[^a-zA-Z0-9]/g, '') || 'unknown_' + index).toString(),
+                name: ev.name || '名称不明',
+                startTime: new Date(ev.timesort * 1000).toLocaleString('ja-JP', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                }),
+                course: ev.course?.fullname || ev.course?.shortname || '不明なコース',
+                moduleName: ev.modulename || 'その他',
                 url: ev.url || '',
-                description: ev.description || ''
+                description: (ev.description || '説明なし').replace(/<[^>]*>/g, ''), // HTMLタグを除去
+                timeSort: ev.timesort,
+                isCompleted: false,
+                priority: 2
               }));
               
               // Flutter側にデータを送信
-              window.flutter_inappwebview.callHandler('assignmentDataHandler', { events: formattedEvents });
+              window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+                events: formattedEvents,
+                totalCount: formattedEvents.length,
+                fetchTime: new Date().toISOString(),
+                success: true
+              });
+              
+              console.log('✅ 課題データ送信完了:', formattedEvents.length + '件');
+              
+            } else if (data && Array.isArray(data) && data[0] && data[0].data && Array.isArray(data[0].data.events) && data[0].data.events.length === 0) {
+              // データは正常だが課題が0件の場合
+              console.log('📭 課題データなし');
+              window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+                events: [],
+                totalCount: 0,
+                message: '現在表示する課題はありません',
+                success: true
+              });
             } else {
-              window.flutter_inappwebview.callHandler('assignmentDataHandler', { error: 'データの形式が不正' });
+              // データの形式が想定と異なる場合
+              console.error('❌ 予期しないデータ形式:', data);
+              window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+                error: 'APIからのデータ形式が予期しないものでした' 
+              });
             }
           } catch (error) {
-            window.flutter_inappwebview.callHandler('assignmentDataHandler', { error: error.toString() });
+            // 通信エラーやJavaScriptエラーをキャッチ
+            console.error('❌ 課題データ取得エラー:', error);
+            let errorMessage = 'エラーが発生しました';
+            
+            if (error.name === 'AbortError') {
+              errorMessage = 'リクエストがタイムアウトしました';
+            } else if (error.message.includes('fetch')) {
+              errorMessage = 'ネットワーク接続に問題があります';
+            } else {
+              errorMessage = error.message || error.toString();
+            }
+            
+            window.flutter_inappwebview.callHandler('assignmentDataHandler', { 
+              error: errorMessage
+            });
           }
         }
         
-        // 関数実行
-        fetchAssignmentData();
-      ''');
-    } catch (e) {
-      print('JavaScript実行エラー: $e');
-      // エラーハンドリング
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('課題データの取得に失敗しました: $e'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+        // メイン処理を実行（少し待ってから）
+        console.log('🚀 課題データ取得を開始...');
+        setTimeout(fetchAssignmentData, 1000); // 1秒待ってから実行
+      ''');} catch (e) {
+      print('❌ JavaScript実行エラー: $e');
+      // エラーハンドリング - JavaScript実行に失敗した場合
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('課題データの取得に失敗: $e 😞'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'リトライ',
+              textColor: Colors.white,
+              onPressed: () => _fetchAssignmentData(controller),
+            ),
+          ),
+        );
+      }
     }
-  }
-
-  // 取得した課題データを処理するメソッド
+  }  // 取得した課題データを処理するメソッド
+  // 引数: Moodleから取得した生データ
+  // 戻り値: なし（プロバイダーの状態を更新）
   void _processAssignmentData(dynamic data) {
+    if (!mounted) return; // ウィジェットが破棄されている場合は処理しない
+    
     if (data is Map && data.containsKey('error')) {
-      // エラーハンドリング
-      print('エラー発生: ${data['error']}');
+      // エラーハンドリング - MoodleのAPIエラーや通信エラーを表示
+      print('❌ エラー発生: ${data['error']}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('データ取得エラー: ${data['error']}'),
+          content: Text('データ取得エラー: ${data['error']} 😫'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'リトライ',
+            textColor: Colors.white,
+            onPressed: () => _fetchAssignmentData(webViewController),
+          ),
         ),
       );
       return;
@@ -245,17 +426,106 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     if (data is Map && data.containsKey('events') && data['events'] is List) {
       final events = data['events'] as List;
-      print('取得した課題数: ${events.length}');
+      print('✅ 取得した課題数: ${events.length}');
       
-      // Riverpodプロバイダに保存
-      ref.read(assignmentsProvider.notifier).setAssignments(events);
-      
-      // デバッグ出力
-      for (var i = 0; i < events.length; i++) {
-        print('課題${i + 1}: ${events[i]['name']}');
-        print('  開始: ${events[i]['startTime']}');
-        print('  コース: ${events[i]['course']}');
+      // データの形式を確認してからプロバイダーに保存
+      try {
+        if (events.isEmpty) {
+          // 課題が0件の場合
+          ref.read(assignmentsProvider.notifier).setAssignments([]);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('現在期限の近い課題はありません 📝'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        // 各課題データを安全に変換
+        final formattedEvents = events.asMap().entries.map((entry) {
+          final index = entry.key;
+          final event = entry.value;
+          
+          final eventMap = Map<String, dynamic>.from(event is Map ? event : {});
+          
+          // 安全なID生成
+          String safeId;
+          if (eventMap['id'] != null) {
+            safeId = eventMap['id'].toString();
+          } else if (eventMap['name'] != null) {
+            safeId = eventMap['name'].toString().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+            if (safeId.isEmpty) safeId = 'assignment_$index';
+          } else {
+            safeId = 'assignment_$index';
+          }
+          
+          eventMap['id'] = safeId;
+          return eventMap;
+        }).toList();
+        
+        // Riverpodプロバイダに保存
+        ref.read(assignmentsProvider.notifier).setAssignments(formattedEvents);
+        
+        // 成功メッセージを表示
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('課題データを${events.length}件取得完了！🎯'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+          // デバッグ出力（最初の3件のみ）
+        final displayCount = events.length > 3 ? 3 : events.length;
+        print('🔍 === 課題データ詳細デバッグ ===');
+        for (var i = 0; i < displayCount; i++) {
+          print('📚 課題${i + 1}: ${events[i]['name']}');
+          print('  ⏰ 日時（生データ）: "${events[i]['startTime']}" (長さ: ${events[i]['startTime'].toString().length})');
+          print('  📖 コース: ${events[i]['course']}');
+          print('  🔑 ID: ${events[i]['id']}');
+          
+          // 日付文字列の詳細分析
+          final dateStr = events[i]['startTime'].toString();
+          print('  📅 日付文字列分析:');
+          print('    - 文字列: "$dateStr"');
+          print('    - 文字数: ${dateStr.length}');
+          print('    - 含まれる文字: ${dateStr.split('').join(', ')}');
+        }
+        if (events.length > 3) {
+          print('... 他${events.length - 3}件');
+        }
+        print('🔍 === デバッグ終了 ===');
+        
+      } catch (e) {
+        print('❌ データ変換エラー: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('データの変換に失敗: $e 😱'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'リトライ',
+              textColor: Colors.white,
+              onPressed: () => _fetchAssignmentData(webViewController),
+            ),
+          ),
+        );
       }
+    } else {
+      print('⚠️ 予期しないデータ形式: $data');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('課題データの形式が正しくありません 🤔'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'リトライ',
+            textColor: Colors.white,
+            onPressed: () => _fetchAssignmentData(webViewController),
+          ),
+        ),
+      );
     }
   }
 }
