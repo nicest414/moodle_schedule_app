@@ -16,8 +16,8 @@ class MyApp extends StatelessWidget {
     return Consumer(
       builder: (context, ref, child) {
         // ダークモード設定を監視
-        final isDarkMode = ref.watch(themeProvider);
-        
+        final isDarkMode = ref.watch(settingsProvider).isDarkMode; // settingsProviderからisDarkModeを取得
+
         return MaterialApp(
           title: 'Moodle Schedule App',
           // テーマ設定（ライト・ダーク対応）

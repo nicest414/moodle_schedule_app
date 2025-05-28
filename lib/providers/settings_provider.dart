@@ -1,31 +1,27 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'assignments_provider.dart';
-import 'storage_provider.dart'; // ストレージ機能をインポート
-import '../utils/logger.dart'; // ロガーをインポート
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// アプリの設定データを管理するクラス
-/// ユーザーの好みや通知設定などを保存
+// 設定の状態を表すクラス
 class AppSettings {
-  final bool notificationsEnabled; // 通知の有効/無効
-  final int notificationHours; // 通知を送る時間（締切の何時間前）
-  final bool isDarkMode; // ダークモードの有効/無効
-  final AssignmentSortType defaultSortType; // デフォルトのソート方法
-  final bool showCompletedTasks; // 完了した課題を表示するか
+  final bool notificationsEnabled;
+  final int notificationHours;
+  final bool isDarkMode;
+  final SortType defaultSortType; // SortType を使う
+  final bool showCompletedTasks;
 
-  const AppSettings({
+  AppSettings({
     this.notificationsEnabled = true,
-    this.notificationHours = 24,
+    this.notificationHours = 1,
     this.isDarkMode = false,
-    this.defaultSortType = AssignmentSortType.dueDate,
-    this.showCompletedTasks = false,
+    this.defaultSortType = SortType.dueDate, // デフォルトは締切日順
+    this.showCompletedTasks = true,
   });
 
-  /// 設定をコピーして一部の値を変更するメソッド
   AppSettings copyWith({
     bool? notificationsEnabled,
     int? notificationHours,
     bool? isDarkMode,
-    AssignmentSortType? defaultSortType,
+    SortType? defaultSortType,
     bool? showCompletedTasks,
   }) {
     return AppSettings(
@@ -36,115 +32,76 @@ class AppSettings {
       showCompletedTasks: showCompletedTasks ?? this.showCompletedTasks,
     );
   }
-
-  /// 設定をMapに変換（ローカルストレージ保存用）
-  Map<String, dynamic> toMap() {
-    return {
-      'notificationsEnabled': notificationsEnabled,
-      'notificationHours': notificationHours,
-      'isDarkMode': isDarkMode,
-      'defaultSortType': defaultSortType.index,
-      'showCompletedTasks': showCompletedTasks,
-    };
-  }
-
-  /// Mapから設定を復元するファクトリメソッド
-  factory AppSettings.fromMap(Map<String, dynamic> map) {
-    return AppSettings(
-      notificationsEnabled: map['notificationsEnabled'] ?? true,
-      notificationHours: map['notificationHours'] ?? 24,
-      isDarkMode: map['isDarkMode'] ?? false,
-      defaultSortType: AssignmentSortType.values[map['defaultSortType'] ?? 0],
-      showCompletedTasks: map['showCompletedTasks'] ?? false,
-    );
-  }
 }
 
-/// 設定を管理するNotifier
-/// ユーザーの設定変更を処理し、状態を更新
-/// ローカルストレージによる永続化機能も提供
-class SettingsNotifier extends StateNotifier<AppSettings> with LoggerMixin {
-  SettingsNotifier() : super(const AppSettings()) {
-    // 初期化時にローカル設定を復元
+// 並び替えの種類を定義する enum
+enum SortType {
+  dueDate,
+  courseName,
+  priority,
+}
+
+// 設定を管理する Notifier
+class SettingsNotifier extends StateNotifier<AppSettings> {
+  SettingsNotifier() : super(AppSettings()) {
     _loadSettings();
   }
 
-  /// 通知の有効/無効を切り替え
-  void toggleNotifications(bool enabled) {
-    state = state.copyWith(notificationsEnabled: enabled);
-    _saveSettings();
-  }
+  static const _keyNotificationsEnabled = 'notificationsEnabled';
+  static const _keyNotificationHours = 'notificationHours';
+  static const _keyIsDarkMode = 'isDarkMode';
+  static const _keyDefaultSortType = 'defaultSortType';
+  static const _keyShowCompletedTasks = 'showCompletedTasks';
 
-  /// 通知時間を設定
-  void setNotificationHours(int hours) {
-    state = state.copyWith(notificationHours: hours);
-    _saveSettings();
-  }
-
-  /// ダークモードの有効/無効を切り替え
-  void toggleDarkMode(bool enabled) {
-    state = state.copyWith(isDarkMode: enabled);
-    _saveSettings();
-  }
-
-  /// デフォルトソート方法を設定
-  void setDefaultSortType(AssignmentSortType sortType) {
-    state = state.copyWith(defaultSortType: sortType);
-    _saveSettings();
-  }
-
-  /// 完了課題表示の有効/無効を切り替え
-  void toggleShowCompletedTasks(bool show) {
-    state = state.copyWith(showCompletedTasks: show);
-    _saveSettings();
-  }
-  /// 設定をローカルストレージに保存するメソッド
-  /// 設定変更後に自動実行される
-  Future<void> _saveSettings() async {
-    try {
-      await StorageService.saveUserSettings(state.toMap());
-      logSuccess('設定保存完了: ${state.toMap()}');
-    } catch (e) {
-      logError('設定保存エラー', error: e);
-    }
-  }
-  /// 設定をローカルストレージから読み込むメソッド
-  /// アプリ起動時に自動実行される
+  // 設定を読み込む
   Future<void> _loadSettings() async {
-    try {
-      final settingsMap = await StorageService.loadUserSettings();
-      final loadedSettings = AppSettings.fromMap(settingsMap);
-      state = loadedSettings;
-      logSuccess('設定復元完了');
-    } catch (e) {
-      logError('設定復元エラー - デフォルト設定を使用', error: e);
-      state = const AppSettings();
-    }
+    final prefs = await SharedPreferences.getInstance();
+    state = AppSettings(
+      notificationsEnabled: prefs.getBool(_keyNotificationsEnabled) ?? true,
+      notificationHours: prefs.getInt(_keyNotificationHours) ?? 1,
+      isDarkMode: prefs.getBool(_keyIsDarkMode) ?? false,
+      defaultSortType: SortType.values[prefs.getInt(_keyDefaultSortType) ?? SortType.dueDate.index],
+      showCompletedTasks: prefs.getBool(_keyShowCompletedTasks) ?? true,
+    );
   }
 
-  /// 手動で設定を復元するメソッド
-  /// 設定画面からの手動復元時に使用
-  Future<void> refreshSettings() async {
-    await _loadSettings();
+  // 通知の有効/無効を切り替える
+  Future<void> toggleNotifications(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyNotificationsEnabled, enabled);
+    state = state.copyWith(notificationsEnabled: enabled);
   }
-  /// すべての設定をリセットするメソッド
-  /// 設定画面のリセット機能で使用
-  Future<void> resetToDefaults() async {
-    state = const AppSettings();
-    await _saveSettings();
-    logInfo('設定をデフォルトにリセット');
+
+  // 通知時間を設定する
+  Future<void> setNotificationHours(int hours) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyNotificationHours, hours);
+    state = state.copyWith(notificationHours: hours);
+  }
+
+  // ダークモードの有効/無効を切り替える
+  Future<void> toggleDarkMode(bool darkMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyIsDarkMode, darkMode);
+    state = state.copyWith(isDarkMode: darkMode);
+  }
+
+  // デフォルトの並び順を設定する
+  Future<void> setDefaultSortType(SortType sortType) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyDefaultSortType, sortType.index);
+    state = state.copyWith(defaultSortType: sortType);
+  }
+
+  // 完了したタスクの表示/非表示を切り替える
+  Future<void> toggleShowCompletedTasks(bool show) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyShowCompletedTasks, show);
+    state = state.copyWith(showCompletedTasks: show);
   }
 }
 
-/// 設定プロバイダー
-/// アプリ全体で設定データを共有
+// 設定プロバイダー
 final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
   return SettingsNotifier();
-});
-
-/// テーマプロバイダー
-/// ダークモード設定に基づいてテーマを提供
-final themeProvider = Provider<bool>((ref) {
-  final settings = ref.watch(settingsProvider);
-  return settings.isDarkMode;
 });

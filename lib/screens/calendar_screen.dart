@@ -148,9 +148,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> with LoggerMixi
         if (!grouped.containsKey(dateKey)) {
           grouped[dateKey] = [];
         }
-          // 課題をその日付のリストに追加
-        grouped[dateKey]!.add(assignment);
-      } catch (e) {
+        // 課題をその日付のリストに追加
+        grouped[dateKey]!.add(assignment);      } catch (e) {
         logError('日付解析エラー: $e');
         // エラーの場合は今日の日付に追加
         final todayKey = _getDateKey(DateTime.now());
@@ -169,6 +168,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> with LoggerMixi
   String _getDateKey(DateTime date) {
     return DateFormat('yyyy-MM-dd').format(date);
   }
+
   /// 文字列の日付をDateTimeに変換するメソッド
   /// 複数の日付形式に対応
   DateTime _parseDateTime(String dateTimeString) {
@@ -195,9 +195,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> with LoggerMixi
         } catch (e) {
           // このフォーマットで失敗したら次を試す
           continue;
-        }
-      }
-          // すべて失敗した場合はエラーログを出力して現在時刻を返す
+        }      }
+      // すべて失敗した場合はエラーログを出力して現在時刻を返す
       logWarning('CalendarScreen日付パース失敗: $dateTimeString');
       return DateTime.now();
     } catch (e) {
@@ -321,49 +320,52 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> with LoggerMixi
         builder: (context, scrollController) {
           return Container(
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ドラッグハンドル
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // 課題タイトル
-                Row(
-                  children: [
-                    Icon(
-                      _getIconForModule(assignment.moduleName),
-                      color: _getColorForModule(assignment.moduleName),
-                      size: 32,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        assignment.name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+            child: SingleChildScrollView(
+              controller: scrollController,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ドラッグハンドル
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                  ],
-                ),
-                const Divider(height: 32),
-                // 詳細情報
-                _buildInfoTile('コース', assignment.course),
-                _buildInfoTile('締切日時', DateFormat('M月d日(E) HH:mm').format(_parseDateTime(assignment.startTime))),
-                _buildInfoTile('課題の種類', assignment.moduleName),
-                if (assignment.description.isNotEmpty)
-                  _buildInfoTile('説明', assignment.description),
-              ],
+                  ),
+                  const SizedBox(height: 20),
+                  // 課題タイトル
+                  Row(
+                    children: [
+                      Icon(
+                        _getIconForModule(assignment.moduleName),
+                        color: _getColorForModule(assignment.moduleName),
+                        size: 32,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          assignment.name,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 32),
+                  // 詳細情報
+                  _buildInfoTile('コース', assignment.course),
+                  _buildInfoTile('締切日時', DateFormat('M月d日(E) HH:mm').format(_parseDateTime(assignment.startTime))),
+                  _buildInfoTile('課題の種類', assignment.moduleName),
+                  if (assignment.description.isNotEmpty)
+                    _buildInfoTile('説明', assignment.description),
+                ],
+              ),
             ),
           );
         },

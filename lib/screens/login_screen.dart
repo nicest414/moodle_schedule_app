@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import 'main_navigation_screen.dart'; // メインナビゲーション画面
 import '../providers/assignments_provider.dart';
 import '../utils/logger.dart';
+import '../services/webview_service_new.dart'; // 新しいサービスをインポート
 
 // Moodleにログインするための画面
 // WebViewを使って学校のログインページを表示し、認証状態を管理
@@ -19,12 +20,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
   late InAppWebViewController webViewController;
   final String moodleLoginUrl = 'https://moodle.cis.fukuoka-u.ac.jp/login/index.php';
   
+  // WebViewサービスのインスタンス (新しいサービスを使用)
+  final WebViewService _webViewService = WebViewService();
+  
   // ページ読み込み中かどうかを管理する状態
   bool isLoading = true;
   // エラーが発生したかどうかを管理する状態
   bool hasError = false;
   // エラーメッセージを保存する
   String errorMessage = '';
+  // 自動ログイン処理中かどうか
+  bool isAutoLogging = false;
 
   @override
   Widget build(BuildContext context) {
@@ -47,8 +53,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
       ),
       body: Stack(
         children: [          InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri.uri(Uri.parse(moodleLoginUrl))),
-            // WebView設定を強化
+            initialUrlRequest: URLRequest(url: WebUri.uri(Uri.parse(moodleLoginUrl))),            // WebView設定を強化（SSL証明書エラー対策含む）
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               domStorageEnabled: true,
@@ -58,15 +63,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
               // レンダリング設定
               useWideViewPort: true,
               loadWithOverviewMode: true,
-              // セキュリティ設定
+              // セキュリティ設定（開発時のSSL証明書エラー対策）
               allowsInlineMediaPlayback: true,
               allowsAirPlayForMediaPlayback: false,
+              // SSL証明書の検証を緩和（開発環境用）
+              allowsBackForwardNavigationGestures: true,
               // クラッシュ防止設定
               disableDefaultErrorPage: true,
               supportMultipleWindows: false,
-            ),
-            onWebViewCreated: (controller) {
+              // Androidエミュレータ用設定
+              mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+            ),onWebViewCreated: (controller) {
               webViewController = controller;
+              // WebViewサービスを初期化
+              _webViewService.initialize(controller);
+              
+              // JavaScriptハンドラーを追加（自動ログインチェックボックス用）
+              controller.addJavaScriptHandler(
+                handlerName: 'autoLoginChanged',
+                callback: (args) {
+                  final isEnabled = args.isNotEmpty ? args[0] as bool : false;
+                  ref.read(authProvider.notifier).setAutoLoginEnabled(isEnabled);
+                },
+              );
             },
             // SSL証明書エラーを無視する設定
             onReceivedServerTrustAuthRequest: (controller, challenge) async {
@@ -103,12 +122,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
               setState(() {
                 isLoading = false;
               });
+
+              // ログインページの場合の処理
+              if (url.toString() == moodleLoginUrl) {
+                await Future.delayed(const Duration(milliseconds: 1500)); // DOM読み込み待機
+
+                // 「すでにログインしています」画面かどうかをチェックし、該当すればログアウト処理
+                final String alreadyLoggedInScript = """
+                  (function() {
+                    const noticeElement = document.querySelector('div[role="alertdialog"] p');
+                    // 修正点: キャンセルボタンを探すように変更
+                    const cancelButton = document.querySelector('button[id^="single_button"][type="submit"]'); // IDが "single_button" で始まり、typeがsubmitのボタンを探す
+                    if (noticeElement && noticeElement.innerText.includes('あなたはすでに') && noticeElement.innerText.includes('としてログインしています') && cancelButton && cancelButton.innerText.toLowerCase().includes('キャンセル')) { // ボタンのテキストも確認
+                      cancelButton.click();
+                      return true; // キャンセル処理を実行した
+                    }
+                    return false; // キャンセル処理は不要
+                  })();
+                """;
+                final alreadyLoggedInResult = await controller.evaluateJavascript(source: alreadyLoggedInScript);
+
+                if (alreadyLoggedInResult == true) {
+                  logInfo('「すでにログインしています」画面を検出したため、キャンセル処理を実行しました。');
+                  // キャンセル後はログインページに留まるはずなので、後続の自動ログイン処理に進む
+                }
+
+                // 「すでにログインしています」画面でなければ、通常の自動ログイン処理へ
+                await _webViewService.addAutoLoginCheckbox();
+                final authState = ref.read(authProvider);
+                if (authState.isAutoLoginEnabled && !isAutoLogging) {
+                  logInfo('自動ログイン処理を開始します。');
+                  await _performAutoLogin();
+                }
+              }
               
               // ログイン成功後のリダイレクトURLを確認
               if (url.toString().contains('/my/')) {
                 try {
                   // ログイン成功とみなして状態を更新
-                  ref.read(authProvider.notifier).state = true;
+                  ref.read(authProvider.notifier).setLoggedIn(true);
 
                   // ログイン成功時のスナックバー表示
                   if (mounted) {
@@ -300,14 +352,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
             clearTimeout(timeoutId); // タイムアウトをクリア
             
             console.log('📡 レスポンス受信:', response.status, response.statusText);
+            console.log('Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries())));
+            
+            console.log('🔄 response.text() 呼び出し前');
+            const responseText = await response.text();
+            console.log('📄 Response text raw:', responseText); // 生のレスポンステキストをログ出力
             
             if (!response.ok) {
-              throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+              console.error('❌ HTTPエラー発生:', response.status, response.statusText, 'レスポンス:', responseText);
+              throw new Error('HTTP ' + response.status + ': ' + response.statusText + ' - ' + responseText);
             }
             
-            // レスポンスをJSONに変換
-            const data = await response.json();
-            console.log('📊 レスポンスデータ:', data);
+            console.log('🔄 JSON.parse 呼び出し前、responseText:', responseText);
+            const data = JSON.parse(responseText); 
+            console.log('📊 レスポンスデータ (パース後):', JSON.stringify(data)); // パース後のデータも文字列化してログ出力
             
             // データの構造を確認
             if (data && Array.isArray(data) && data[0] && data[0].data && data[0].data.events) {
@@ -519,8 +577,87 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with LoggerMixin {
             textColor: Colors.white,
             onPressed: () => _fetchAssignmentData(webViewController),
           ),
-        ),
-      );
+        ),      );
+    }
+  }
+
+  /// 自動ログイン処理を実行
+  /// わせジュールの自動ログイン機能を参考に実装
+  Future<void> _performAutoLogin() async {
+    logInfo('_performAutoLoginが呼び出されました。'); // ログ追加
+    if (isAutoLogging) { // 重複実行防止
+      logInfo('自動ログイン処理は既に実行中のためスキップします。');
+      return;
+    }
+    
+    setState(() {
+      isAutoLogging = true;
+    });
+
+    // AuthProviderからユーザー名とパスワードを取得
+    final authState = ref.read(authProvider);
+    final String? username = authState.username;
+    final String? password = authState.password;
+
+    // Moodle URLも取得（WebViewServiceで使うかもしれないので）
+    // final String? moodleUrl = authState.moodleUrl; 
+
+    if (username == null || username.isEmpty || password == null || password.isEmpty) {
+      logWarning("自動ログイン用のユーザー名またはパスワードが設定されていません。");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('自動ログイン用の認証情報が未設定です。設定画面を確認してください。'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+      setState(() {
+        isAutoLogging = false;
+      });
+      return;
+    }
+
+    try {
+      await _webViewService.showLoadingScreen();
+      
+      // WebViewServiceのperformAutoLoginに取得した認証情報を渡す
+      final loginSuccess = await _webViewService.performAutoLogin(username, password);
+      
+      if (loginSuccess) {
+        logInfo('自動ログイン処理が試行されました。');
+        // ログイン成功後の処理は onLoadStop で行われるため、ここでは特別な処理は不要
+        // 必要であれば、ログイン試行成功のUIフィードバックなどを追加
+      } else {
+        logWarning('自動ログイン処理の実行に失敗しました。');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('自動ログインに失敗しました。手動でログインしてください。'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+      
+    } catch (e) {
+      logError('自動ログイン処理エラー: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('自動ログイン中にエラーが発生: $e 😞'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      await _webViewService.hideLoadingScreen();
+      setState(() {
+        isAutoLogging = false;
+      });
     }
   }
 }
