@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../providers/settings_provider.dart';
 import '../providers/assignments_provider.dart';
 import '../providers/auth_provider.dart';
+import 'splash_screen.dart';
 
 /// アプリの設定画面
 /// 通知設定、テーマ設定、データ管理などを行う
@@ -176,6 +177,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ログアウトセクション
+            _buildSectionHeader('🔐 アカウント管理'),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.logout, color: Colors.red),
+                    title: const Text('ログアウト'),
+                    subtitle: const Text('現在のセッションを終了してログイン画面に戻る'),
+                    onTap: () => _showLogoutDialog(context, ref),
+                  ),
+                ],
               ),
             ),
 
@@ -661,6 +679,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 child: const Text('削除'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  /// ログアウト確認ダイアログを表示
+  void _showLogoutDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('🔐 ログアウト'),
+            content: const Text(
+              'ログアウトしますか？\n'
+              'ログイン情報は保持されますが、現在のセッションが終了します。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  // ログアウト処理を実行
+                  ref.read(authProvider.notifier).logout();
+
+                  // ダイアログを閉じる
+                  Navigator.pop(context);
+
+                  // スプラッシュ画面に戻る（全ての画面をクリア）
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const SplashScreen(),
+                    ),
+                    (route) => false,
+                  );
+
+                  // ログアウト完了メッセージ
+                  Future.delayed(const Duration(milliseconds: 500), () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('ログアウトしました 👋'),
+                        backgroundColor: Colors.orange,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  });
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('ログアウト'),
               ),
             ],
           ),
