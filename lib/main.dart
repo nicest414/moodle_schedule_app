@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'screens/login_screen.dart';  // ログイン画面を表示
+import 'screens/splash_screen.dart'; // スプラッシュ画面を表示
 import 'providers/settings_provider.dart';
-
 
 void main() {
   runApp(const ProviderScope(child: MyApp()));
@@ -16,7 +15,10 @@ class MyApp extends StatelessWidget {
     return Consumer(
       builder: (context, ref, child) {
         // ダークモード設定を監視
-        final isDarkMode = ref.watch(settingsProvider).isDarkMode; // settingsProviderからisDarkModeを取得
+        final isDarkMode =
+            ref
+                .watch(settingsProvider)
+                .isDarkMode; // settingsProviderからisDarkModeを取得
 
         return MaterialApp(
           title: 'Moodle Schedule App',
@@ -36,7 +38,7 @@ class MyApp extends StatelessWidget {
             useMaterial3: true,
           ),
           themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          home: const LoginScreen(),
+          home: const SplashScreen(),
           // デバッグバナーを非表示
           debugShowCheckedModeBanner: false,
         );

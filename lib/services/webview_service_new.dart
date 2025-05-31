@@ -1,4 +1,3 @@
-
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../utils/logger.dart';
 
@@ -6,7 +5,7 @@ import '../utils/logger.dart';
 /// 実際のMoodleページ構造に基づいた自動ログイン機能を提供
 class WebViewService {
   static const String _tag = 'WebViewService';
-  
+
   InAppWebViewController? _webViewController;
   bool _isInitialized = false;
 
@@ -20,6 +19,225 @@ class WebViewService {
 
   /// 初期化チェック
   bool get isInitialized => _isInitialized;
+
+  /// バックグラウンドで自動ログインを試行
+  /// スプラッシュ画面から呼び出される独立したログイン機能
+  Future<bool> attemptAutoLogin(
+    String moodleUrl,
+    String username,
+    String password,
+  ) async {
+    try {
+      AppLogger.info('Starting background auto login', tag: _tag);
+
+      // 一時的なWebViewを作成してバックグラウンドでログイン処理
+      late HeadlessInAppWebView headlessWebView;
+
+      // ログイン成功フラグ
+      bool loginSuccess = false;
+      bool pageLoaded = false;
+      bool formSubmitted = false;
+
+      headlessWebView = HeadlessInAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri.uri(Uri.parse(moodleUrl))),
+        initialSettings: InAppWebViewSettings(
+          javaScriptEnabled: true,
+          domStorageEnabled: true,
+          databaseEnabled: true,
+          clearCache: false,
+          cacheEnabled: true,
+          userAgent:
+              'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
+        ),
+        onLoadStop: (controller, url) async {
+          pageLoaded = true;
+          final urlString = url.toString();
+          AppLogger.info('Background WebView loaded: $urlString', tag: _tag);
+
+          // ログイン成功の判定（ダッシュボードやマイページにリダイレクトされた場合）
+          if (urlString.contains('/my/') ||
+              urlString.contains('/course/') ||
+              urlString.contains('/dashboard/') ||
+              urlString.contains('/user/')) {
+            // さらにページ内容を確認
+            await Future.delayed(const Duration(milliseconds: 1000));
+
+            try {
+              final loginCheckScript = '''
+                (function() {
+                  // ログイン成功の判定
+                  const isLoggedIn = 
+                    document.querySelector('.usermenu') !== null ||
+                    document.querySelector('.navbar-nav .dropdown') !== null ||
+                    document.querySelector('[data-region="drawer-toggle"]') !== null ||
+                    document.querySelector('.user-menu') !== null;
+                  
+                  console.log('🔍 バックグラウンドログイン状態チェック:', {
+                    url: window.location.href,
+                    isLoggedIn: isLoggedIn
+                  });
+                  
+                  return isLoggedIn;
+                })();
+              ''';
+
+              final isLoggedIn = await controller.evaluateJavascript(
+                source: loginCheckScript,
+              );
+              if (isLoggedIn == true) {
+                loginSuccess = true;
+                AppLogger.info(
+                  'Background login verified successfully',
+                  tag: _tag,
+                );
+              }
+            } catch (e) {
+              AppLogger.error(
+                'Background login verification error: $e',
+                tag: _tag,
+              );
+            }
+          } else if (!formSubmitted && urlString.contains('login')) {
+            // ログインページが読み込まれた場合、自動ログインを実行
+            try {
+              await Future.delayed(
+                const Duration(milliseconds: 1500),
+              ); // ページ読み込み待機
+
+              final script = '''
+                (function() {
+                  console.log('🚀 バックグラウンド自動ログイン開始...');
+                  
+                  try {
+                    // ユーザー名フィールドを探す
+                    const usernameSelectors = [
+                      'input[name="username"]',
+                      'input[id="username"]',
+                      'input[type="text"]',
+                      'input[placeholder*="ユーザー"]',
+                      'input[placeholder*="User"]',
+                      '#login-username',
+                      '.form-control[type="text"]'
+                    ];
+                    
+                    let usernameField = null;
+                    for (const selector of usernameSelectors) {
+                      usernameField = document.querySelector(selector);
+                      if (usernameField) break;
+                    }
+                    
+                    // パスワードフィールドを探す
+                    const passwordSelectors = [
+                      'input[name="password"]',
+                      'input[id="password"]',
+                      'input[type="password"]',
+                      '#login-password',
+                      '.form-control[type="password"]'
+                    ];
+                    
+                    let passwordField = null;
+                    for (const selector of passwordSelectors) {
+                      passwordField = document.querySelector(selector);
+                      if (passwordField) break;
+                    }
+                    
+                    if (!usernameField || !passwordField) {
+                      console.log('❌ ログインフィールドが見つからない');
+                      return false;
+                    }
+                    
+                    // 値を入力
+                    usernameField.value = '$username';
+                    passwordField.value = '$password';
+                    
+                    // イベント発火
+                    usernameField.dispatchEvent(new Event('input', { bubbles: true }));
+                    usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+                    passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+                    passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+                    
+                    console.log('✅ ログイン情報入力完了');
+                    
+                    // ログインボタンを探してクリック
+                    const loginButtonSelectors = [
+                      'button[type="submit"]',
+                      'input[type="submit"]',
+                      'button[id="loginbtn"]',
+                      '#loginbtn',
+                      '.btn-primary',
+                      'input[value*="ログイン"]',
+                      'button[name="submitbutton"]',
+                      'form input[type="submit"]'
+                    ];
+                    
+                    let loginButton = null;
+                    for (const selector of loginButtonSelectors) {
+                      loginButton = document.querySelector(selector);
+                      if (loginButton) break;
+                    }
+                    
+                    if (loginButton) {
+                      console.log('🎯 ログインボタンをクリック');
+                      loginButton.click();
+                      return true;
+                    } else {
+                      console.log('⚠️ ログインボタンが見つからない - Enterキーを送信');
+                      passwordField.focus();
+                      passwordField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                      return true;
+                    }
+                    
+                  } catch (error) {
+                    console.log('❌ バックグラウンドログインエラー:', error);
+                    return false;
+                  }
+                })();
+              ''';
+
+              final result = await controller.evaluateJavascript(
+                source: script,
+              );
+              if (result == true) {
+                formSubmitted = true;
+                AppLogger.info('Background login form submitted', tag: _tag);
+              }
+            } catch (e) {
+              AppLogger.error('Background login script error: $e', tag: _tag);
+            }
+          }
+        },
+      );
+
+      // WebViewを開始
+      await headlessWebView.run();
+
+      // ログイン処理の完了を待機（最大20秒）
+      int attempts = 0;
+      const maxAttempts = 20;
+
+      while (attempts < maxAttempts && !loginSuccess) {
+        await Future.delayed(const Duration(seconds: 1));
+        attempts++;
+
+        if (!pageLoaded && attempts > 10) {
+          AppLogger.warning(
+            'Background WebView taking too long to load',
+            tag: _tag,
+          );
+          break;
+        }
+      }
+
+      // クリーンアップ
+      await headlessWebView.dispose();
+
+      AppLogger.info('Background auto login result: $loginSuccess', tag: _tag);
+      return loginSuccess;
+    } catch (e) {
+      AppLogger.error('Background auto login error: $e', tag: _tag);
+      return false;
+    }
+  }
 
   /// ローディング画面を表示
   /// わせジュールのshow_loading_screen.jsを実行
@@ -359,15 +577,17 @@ class WebViewService {
         })();
       ''';
 
-      final result = await _webViewController?.evaluateJavascript(source: script);
+      final result = await _webViewController?.evaluateJavascript(
+        source: script,
+      );
       final success = result == true;
-      
+
       if (success) {
         AppLogger.info('Auto login completed successfully', tag: _tag);
       } else {
         AppLogger.warning('Auto login failed', tag: _tag);
       }
-      
+
       return success;
     } catch (e) {
       AppLogger.error('Auto login error: $e', tag: _tag);
@@ -404,9 +624,11 @@ class WebViewService {
         })();
       ''';
 
-      final result = await _webViewController?.evaluateJavascript(source: script);
+      final result = await _webViewController?.evaluateJavascript(
+        source: script,
+      );
       final isLoggedIn = result == true;
-      
+
       AppLogger.info('Login status: $isLoggedIn', tag: _tag);
       return isLoggedIn;
     } catch (e) {
@@ -441,7 +663,7 @@ class WebViewService {
           
           for (const selector of assignmentSelectors) {
             const elements = document.querySelectorAll(selector);
-            console.log(\`🔍 セレクター "\${selector}" で \${elements.length}個の要素を発見\`);
+            console.log('🔍 セレクター "' + selector + '" で ' + elements.length + '個の要素を発見');
             
             elements.forEach((element, index) => {
               try {
@@ -461,27 +683,27 @@ class WebViewService {
                   
                   if (assignment.title) {
                     assignments.push(assignment);
-                    console.log('📝 課題発見:', assignment.title);
+                    console.log('✅ 課題発見:', assignment.title);
                   }
                 }
-              } catch (error) {
-                console.warn('⚠️ 課題データ解析エラー:', error);
+              } catch (e) {
+                console.log('⚠️ 課題解析エラー:', e);
               }
             });
-            
-            if (assignments.length > 0) break;
           }
           
-          console.log(\`✅ 課題データ取得完了: \${assignments.length}件\`);
+          console.log('📋 課題データ取得完了:', assignments.length + '件');
           return assignments;
         })();
       ''';
 
-      final result = await _webViewController?.evaluateJavascript(source: script);
-      
+      final result = await _webViewController?.evaluateJavascript(
+        source: script,
+      );
+
       if (result is List) {
-        List<Map<String, dynamic>> assignments = [];
-        for (var item in result) {
+        final assignments = <Map<String, dynamic>>[];
+        for (final item in result) {
           if (item is Map) {
             assignments.add(Map<String, dynamic>.from(item));
           }
@@ -489,8 +711,8 @@ class WebViewService {
         AppLogger.info('Fetched ${assignments.length} assignments', tag: _tag);
         return assignments;
       }
-      
-      AppLogger.warning('No assignments found', tag: _tag);
+
+      AppLogger.warning('Unexpected assignments data format', tag: _tag);
       return [];
     } catch (e) {
       AppLogger.error('Failed to fetch assignments: $e', tag: _tag);
