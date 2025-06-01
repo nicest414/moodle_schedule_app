@@ -1,7 +1,7 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'storage_provider.dart'; // ストレージ機能をインポート
 import '../utils/logger.dart'; // ロガーをインポート
+import '../utils/date_utils.dart' as app_date_utils;
 
 /// 課題データのモデルクラス
 /// Moodleから取得した課題情報と、アプリ内での完了状態を管理
@@ -214,8 +214,8 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> with LoggerMix
     
     switch (sortType) {      case AssignmentSortType.dueDate:        sortedList.sort((a, b) {
           try {
-            final dateA = _parseDateTime(a.startTime);
-            final dateB = _parseDateTime(b.startTime);
+            final dateA = app_date_utils.DateUtils.parseDateTime(a.startTime);
+            final dateB = app_date_utils.DateUtils.parseDateTime(b.startTime);
             return dateA.compareTo(dateB);
           } catch (e) {
             logError('ソート中の日付パースエラー', error: e);
@@ -231,46 +231,9 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> with LoggerMix
         break;
       case AssignmentSortType.completion:
         sortedList.sort((a, b) => a.isCompleted ? 1 : -1);
-        break;
-    }
+        break;    }
     
     state = sortedList;
-  }  /// 日付文字列をDateTimeに変換するヘルパーメソッド
-  /// 複数の日付形式に対応してより柔軟にパース
-  DateTime _parseDateTime(String dateTimeString) {
-    try {
-      // 実際に来るデータの形式に合わせたフォーマットリスト
-      final List<String> dateFormats = [
-        'yyyy/MM/dd HH:mm',          // メイン形式: 2025/06/03 15:00
-        'yyyy/MM/dd H:mm',           // 時刻が1桁の場合: 2025/06/03 4:00
-        'yyyy/M/dd HH:mm',           // 月が1桁の場合: 2025/6/03 15:00
-        'yyyy/M/dd H:mm',            // 月と時刻が1桁: 2025/6/03 4:00
-        'yyyy/MM/d HH:mm',           // 日が1桁の場合: 2025/06/3 15:00
-        'yyyy/MM/d H:mm',            // 日と時刻が1桁: 2025/06/3 4:00
-        'yyyy/M/d HH:mm',            // 月と日が1桁: 2025/6/3 15:00
-        'yyyy/M/d H:mm',             // 月、日、時刻が1桁: 2025/6/3 4:00
-        'yyyy-MM-dd HH:mm:ss',       // ISO形式（バックアップ）
-        'yyyy-MM-dd HH:mm',          // ISO形式（秒なし）
-      ];        // 各フォーマットを順番に試す
-      for (String format in dateFormats) {
-        try {
-          final parsed = DateFormat(format).parse(dateTimeString);
-          logDebug('日付パース成功: "$dateTimeString" → $parsed (フォーマット: $format)');
-          return parsed;
-        } catch (e) {
-          // このフォーマットで失敗したら次を試す
-          continue;
-        }
-      }
-      
-      // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      logWarning('日付パース失敗: $dateTimeString');
-      return DateTime.now();
-      
-    } catch (e) {
-      logError('日付パース例外 - 入力: $dateTimeString', error: e);
-      return DateTime.now();
-    }
   }
 }
 

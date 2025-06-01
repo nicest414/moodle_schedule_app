@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'assignments_provider.dart';
 import 'settings_provider.dart';
 import '../utils/logger.dart'; // ロガーをインポート
+import '../utils/date_utils.dart' as app_date_utils;
 
 /// 通知サービスを管理するクラス
 /// 課題の締切通知を処理
@@ -52,9 +53,8 @@ class NotificationService {
     required Assignment assignment,
     required int hoursBeforeDeadline,
   }) async {
-    try {
-      // 締切日時を解析
-      final deadline = _parseDateTime(assignment.startTime);
+    try {      // 締切日時を解析（共通ユーティリティを使用）
+      final deadline = app_date_utils.DateUtils.parseDateTime(assignment.startTime);
       // 通知時刻を計算（締切の指定時間前）
       final notificationTime = deadline.subtract(Duration(hours: hoursBeforeDeadline));
       
@@ -103,43 +103,9 @@ class NotificationService {
     final notificationId = assignmentId.hashCode;
     await _notifications.cancel(notificationId);
   }
-
   /// 全ての通知をキャンセルするメソッド
   static Future<void> cancelAllNotifications() async {
     await _notifications.cancelAll();
-  }  /// 日付文字列をDateTimeに変換するヘルパーメソッド
-  static DateTime _parseDateTime(String dateTimeString) {
-    try {
-      // 実際に来るデータの形式に合わせたフォーマットリスト
-      final List<String> dateFormats = [
-        'yyyy/MM/dd HH:mm',          // メイン形式: 2025/06/03 15:00
-        'yyyy/MM/dd H:mm',           // 時刻が1桁の場合: 2025/06/03 4:00
-        'yyyy/M/dd HH:mm',           // 月が1桁の場合: 2025/6/03 15:00
-        'yyyy/M/dd H:mm',            // 月と時刻が1桁: 2025/6/03 4:00
-        'yyyy/MM/d HH:mm',           // 日が1桁の場合: 2025/06/3 15:00
-        'yyyy/MM/d H:mm',            // 日と時刻が1桁: 2025/06/3 4:00
-        'yyyy/M/d HH:mm',            // 月と日が1桁: 2025/6/3 15:00
-        'yyyy/M/d H:mm',             // 月、日、時刻が1桁: 2025/6/3 4:00
-        'M/d/yyyy, h:mm:ss a',       // 旧形式（互換性のため）
-        'yyyy-MM-dd HH:mm:ss',       // ISO形式（バックアップ）
-        'yyyy-MM-dd HH:mm',          // ISO形式（秒なし）
-      ];
-      
-      // 各フォーマットを順番に試す
-      for (String format in dateFormats) {
-        try {
-          return DateFormat(format).parse(dateTimeString);
-        } catch (e) {
-          // このフォーマットで失敗したら次を試す
-          continue;
-        }
-      }
-        // すべて失敗した場合はエラーログを出力して現在時刻を返す
-      AppLogger.warning('NotificationProvider日付パース失敗: $dateTimeString', tag: 'Notification');
-      return DateTime.now();
-    } catch (e) {
-      return DateTime.now();
-    }
   }
 
   /// 通知権限をリクエストするメソッド（Android 13+）
