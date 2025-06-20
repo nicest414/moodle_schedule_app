@@ -21,7 +21,6 @@
                 <category android:name="android.intent.category.RECEIVER_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-        
         <activity
             android:name=".MainActivity"
             android:exported="true"

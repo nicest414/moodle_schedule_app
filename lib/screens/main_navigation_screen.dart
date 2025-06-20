@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'home_screen.dart';
 import 'calendar_screen.dart';
+import 'schedule_screen.dart';
 import 'settings_screen.dart';
 
 /// メインのナビゲーション画面
@@ -21,6 +22,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   static const List<Widget> screens = [
     HomeScreen(),      // 課題一覧
     CalendarScreen(),  // カレンダー表示
+    ScheduleScreen(),  // 時間割表示
     SettingsScreen(),  // 設定画面
   ];
 
@@ -50,6 +52,12 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             activeIcon: Icon(Icons.calendar_month),
             label: 'カレンダー',
             tooltip: '課題をカレンダー表示',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.schedule),
+            activeIcon: Icon(Icons.schedule),
+            label: '時間割',
+            tooltip: '時間割を表示',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),

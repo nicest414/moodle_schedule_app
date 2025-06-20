@@ -4,6 +4,7 @@ import '../providers/settings_provider.dart';
 import '../providers/assignments_provider.dart';
 import '../providers/auth_provider.dart';
 import 'splash_screen.dart';
+import 'export_screen.dart';
 
 /// アプリの設定画面
 /// 通知設定、テーマ設定、データ管理などを行う
@@ -43,13 +44,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ref.read(authProvider.notifier).setUsername(username);
       if (password.isNotEmpty) {
         ref.read(authProvider.notifier).setPassword(password);
-      }
-
-      ScaffoldMessenger.of(
+      }      ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Moodle設定を保存しました！💾')));
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -205,6 +205,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 children: [
                   ListTile(
+                    leading: const Icon(Icons.download, color: Colors.green),
+                    title: const Text('データをエクスポート'),
+                    subtitle: const Text('課題データをCSV・JSON形式で出力'),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ExportScreen()),
+                    ),
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.refresh, color: Colors.blue),
                     title: const Text('課題データを更新'),
                     subtitle: const Text('Moodleから最新の課題を取得'),
@@ -228,8 +237,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onTap: () => _showClearAllDataDialog(context, ref),
                   ),
                 ],
-              ),
-            ),
+              ),            ),
 
             const SizedBox(height: 16),
 

@@ -5,7 +5,6 @@ import '../providers/assignments_provider.dart';
 import '../utils/assignment_ui_helpers.dart';
 import '../utils/date_utils.dart' as app_date_utils;
 import 'expandable_description.dart';
-import 'priority_selector.dart';
 
 /// 課題詳細を表示するボトムシート
 /// 課題の詳細情報表示、優先度変更、Moodleでの開く機能を提供
@@ -69,19 +68,10 @@ class AssignmentDetailsSheet extends ConsumerWidget {
                 const Divider(height: 32),
                 
                 // 基本情報セクション
-                _InfoTile(title: 'コース', content: assignment.course),                _InfoTile(
-                  title: '締切日時', 
+                _InfoTile(title: 'コース', content: assignment.course),
+                _InfoTile(
+                  title: '締切日時',
                   content: app_date_utils.DateUtils.formatDateTime(assignment.startTime),
-                ),
-                _InfoTile(title: '課題の種類', content: assignment.moduleName),
-                
-                // 優先度設定セクション
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: PrioritySelector(
-                    selectedPriority: assignment.priority,
-                    assignmentId: assignment.id,
-                  ),
                 ),
                   // 説明セクション（内容がある場合のみ）
                 if (assignment.description.isNotEmpty)

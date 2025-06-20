@@ -113,8 +113,7 @@ class AssignmentsNotifier extends StateNotifier<List<Assignment>> with LoggerMix
     } catch (e) {
       logError('ローカルデータ復元エラー', error: e);
     }
-  }
-  /// データをローカルストレージに保存するメソッド
+  }  /// データをローカルストレージに保存するメソッド
   /// 課題データの変更後に自動実行される
   Future<void> _saveToStorage() async {
     try {

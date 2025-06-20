@@ -3,8 +3,10 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'screens/splash_screen.dart'; // スプラッシュ画面を表示
 import 'providers/settings_provider.dart';
 import 'utils/app_theme.dart'; // テーマ設定を統一管理
-
-void main() {
+void main() async {
+  // Flutter Bindingを初期化
+  WidgetsFlutterBinding.ensureInitialized();
+  
   runApp(const ProviderScope(child: MyApp()));
 }
 
